@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="//cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+<body>
+
+    <script>
+    var config = {
+        type: Phaser.AUTO,
+        width: 720,
+        height: 720,
+        scale: {
+            mode: Phaser.Scale.FIT
+        },
+        scene: {
+            preload: preload,
+            create: create
+        }
+    };
+
+    const game = new Phaser.Game(config);
+    const images = ['black', 'blue', 'green', 'orange', 'pink', 'red', 'yellow'];
+    const gridSize = 8;
+    const cellSize = 54;
+    const offset = 20;
+    const grid = [];
+    var scene = null;
+    var selected = null;
+    var selector = null;
+
+    function preload()
+    {
+        scene = this;
+
+        this.load.image('selector', 'assets/selectorA.png');
+        this.load.image('black', 'assets/tileBlack_15.png');
+        this.load.image('blue', 'assets/tileBlue_15.png');
+        this.load.image('green', 'assets/tileGreen_15.png');
+        this.load.image('orange', 'assets/tileOrange_14.png');
+        this.load.image('pink', 'assets/tilePink_15.png');
+        this.load.image('red', 'assets/tileRed_15.png');
+        this.load.image('yellow', 'assets/tileYellow_15.png');
+    }
+
+    function isAdjacent(a, b) {
+        let aX = a.getData('x');
+        let aY = a.getData('y');
+        let bX = b.getData('x');
+        let bY = b.getData('y');
+        console.log('x compare: [', aX, ',', bX, '] = ', aX == bX);
+        console.log('y compare: [', aY, ',', bY, '] = ', aY == bY);
+        if(aX == bX) return Phaser.Math.Within(aY, bY, 1);
+        if(aY == bY) return Phaser.Math.Within(aX, bX, 1);
+    }
+
+    function checkMatch(item, matches, directionX, directionY) {
+        let itemX = item.getData('x');
+        let itemY = item.getData('y');
+        let siblingX = itemX + directionX;
+        let siblingY = itemY + directionY;
+
+        console.log('[%i,%i] => [%i,%i]', itemX, itemY, siblingX, siblingY);
+
+        if(siblingX < 0 || siblingX >= gridSize) return;
+        if(siblingY < 0 || siblingY >= gridSize) return;
+
+        let sibling = grid[siblingX][siblingY];
+        if(matches.includes(sibling)) return;
+
+        if(sibling.getData('color') === item.getData('color')) {
+            matches.push(sibling);
+            sibling.setData('isMatched', true);
+            checkMatch(sibling, matches, directionX, directionY);
+        }
+    }
+
+    function findDroppable(x, emptyY) {
+        for(let y = emptyY; --y >= 0; ) {
+            let item = grid[x][y];
+
+            if(item == null) continue;
+
+            return item;
+        }
+    }
+
+    function spawnRandom(x, y) {
+        const image = Phaser.Math.Between(0, 6);
+        const color = images[image];
+        const item = scene.add.image(x * cellSize, y * cellSize, color).setOrigin(0, 0);
+        item.setScale(0.5);
+        item.setInteractive();
+        item.setData('color', color);
+        item.setData('x', x);
+        item.setData('y', y);
+        item.setData('isMatched', false);
+        item.on('pointerdown', function() {
+            if(selected != null && isAdjacent(item, selected)) {
+                swap(item, selected);
+
+                selected = null
+                selector.setActive(false);
+                console.log('swapped and disabled selector');
+            }
+            else {
+                selected = item;
+
+                selector.setActive(true);
+                selector.setPosition(item.x, item.y);
+                console.log('selected a new thing!');
+            }
+        });
+        return item;
+    }
+
+    function refill() {
+        for(let x = 0; x < gridSize; x++) {
+            let blanks = 0;
+            for(let y = 0; y < gridSize; y++) {
+                if(grid[x][y] != null) continue;
+
+                blanks++;
+            }
+            for(let y = 0; y < blanks; y++) {
+                let item = spawnRandom(x, y);
+                item.setPosition(x * cellSize, (y - 4) * cellSize);
+                scene.tweens.add({
+                    targets: item,
+                    x: x * cellSize,
+                    y: y * cellSize,
+                    duration: 250
+                });
+                grid[x][y] = item;
+            }
+        }
+    }
+
+    function drop() {
+        for(let x = 0; x < gridSize; x++) {
+            for(let y = gridSize; --y >= 0; ) {
+                if(grid[x][y] != null) continue;
+
+                let droppable = findDroppable(x, y);
+                if(droppable == null) continue;
+
+                let droppableX = droppable.getData('x');
+                let droppableY = droppable.getData('y');
+
+                droppable.setData('x', x);
+                droppable.setData('y', y);
+
+                grid[droppableX][droppableY] = null;
+                grid[x][y] = droppable;
+
+                scene.tweens.add({
+                    targets: droppable,
+                    x: x * cellSize,
+                    y: y * cellSize,
+                    duration: 250
+                });
+            }
+        }
+    }
+
+    function checkMatches() {
+        var matches = [];
+        for(let x = 0; x < gridSize; x++) {
+            for(let y = 0; y < gridSize; y++) {
+                const item = grid[x][y];
+                if(item.getData('isMatched') || matches.includes(item)) continue;
+
+                const verticals = [];
+                checkMatch(item, verticals, 0, 1);
+                checkMatch(item, verticals, 0, -1);
+                console.log('vert matches: ', verticals.length);
+                const horizontals = [];
+                checkMatch(item, horizontals, 1, 0);
+                checkMatch(item, horizontals, -1, 0);
+                console.log('hori matches: ', horizontals.length);
+
+                var hasMatches = false;
+                if(verticals.length > 1) {
+                    matches = matches.concat(verticals);
+                    hasMatches = true;
+                }
+
+                if(horizontals.length > 1) {
+                    matches = matches.concat(horizontals);
+                    hasMatches = true;
+                }
+
+                if(hasMatches) {
+                    matches.push(item);
+                    item.setData('isMatched');
+                }
+            }
+        }
+
+        let matchCount = matches.length;
+        console.log('total matches: %i', matchCount);
+        matches.forEach(function(match) {
+            let x = match.getData('x');
+            let y = match.getData('y');
+
+            if(x == undefined || y == undefined) return;
+
+            console.log("destroying [%i,%i]", x, y);
+            match.destroy();
+            grid[x][y] = null;
+        });
+
+        return matchCount;
+    }
+
+    function onSwap() {
+        const matchCount = checkMatches();
+        drop();
+        refill();
+
+        if(matchCount <= 0) return;
+
+        scene.time.delayedCall(250, onSwap);
+    }
+
+    function swap(a, b) {
+        var aX = a.getData('x');
+        var aY = a.getData('y');
+        var bX = b.getData('x');
+        var bY = b.getData('y');
+
+        a.setData('x', bX);
+        a.setData('y', bY);
+        b.setData('x', aX);
+        b.setData('y', aY);
+
+        grid[aX][aY] = b;
+        grid[bX][bY] = a;
+
+        scene.tweens.add({
+            targets: a,
+            x: b.x,
+            y: b.y,
+            duration: 250
+        });
+
+        scene.tweens.add({
+            targets: b,
+            x: a.x,
+            y: a.y,
+            duration: 250,
+            onComplete: onSwap
+        });
+    }
+
+    function create()
+    {
+        this.scale.displaySize.setAspectRatio(config.width / config.height);
+        this.scale.refresh();
+
+        const center = cellSize * gridSize / 2;
+        this.cameras.main.centerOn(center, center);
+
+        selector = this.add.image(0, 0, 'selector').setOrigin(0.05, 0.05);
+        selector.setScale(1.3);
+        selector.setActive(false);
+
+        for(let x = 0; x < gridSize; x++) {
+            let row = [];
+            grid[x] = row;
+            for(let y = 0; y < gridSize; y++) {
+                row[y] = spawnRandom(x, y);
+            }
+        }
+    }
+    </script>
+
+</body>
+</html>
