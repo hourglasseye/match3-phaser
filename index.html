@@ -27,6 +27,7 @@
     var scene = null;
     var selected = null;
     var selector = null;
+    var allowInput = true;
 
     function preload()
     {
@@ -95,6 +96,8 @@
         item.setData('y', y);
         item.setData('isMatched', false);
         item.on('pointerdown', function() {
+            if(!allowInput) return;
+
             if(selected != null && isAdjacent(item, selected)) {
                 let swapped = swap(item, selected);
 
@@ -222,7 +225,11 @@
         drop();
         refill();
 
-        if(matchCount <= 0) return;
+        if(matchCount <= 0) {
+            allowInput = true;
+
+            return;
+        }
 
         scene.time.delayedCall(250, onSwap);
     }
@@ -251,6 +258,8 @@
             grid[bX][bY] = b;
             return false;
         }
+
+        allowInput = false;
 
         scene.tweens.add({
             targets: a,
